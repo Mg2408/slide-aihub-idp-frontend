@@ -1,0 +1,28 @@
+.metrics-overview {
+  margin-bottom: 16px;
+}
+
+.metrics-stat-card,
+.metrics-chart-card {
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+.metrics-stat-title {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.metrics-stat-value {
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.metrics-stat-helper {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+}

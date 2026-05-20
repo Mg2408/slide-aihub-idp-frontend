@@ -1,0 +1,78 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* ===== Sidebar Menu Text Fix ===== */
+
+.side-menu .ant-menu-item {
+  height: auto !important;        /* allow dynamic height */
+  line-height: 1.4 !important;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* Allow text wrapping */
+.side-menu .ant-menu-title-content {
+  white-space: normal !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Ensure link text also wraps */
+.side-menu .ant-menu-item a {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+  display: inline-block;
+}
+
+/* When collapsed → keep single line & centered */
+.ant-layout-sider-collapsed .side-menu .ant-menu-title-content {
+  white-space: nowrap !important;
+}
+
+/* Optional: better icon alignment for multi-line text */
+.side-menu .ant-menu-item-icon {
+  margin-top: 4px;
+}
+
+
