@@ -49,7 +49,7 @@ const MyMenu = ({ collapsed }) => {
       <Menu.Item key="2" icon={<FileTextOutlined />} title={"Mortgage Letter"}>
         {!collapsed ? <Link to="/mortgage" style={{ textDecoration: 'none' }}>IDP-Mortgage Letter</Link> : <Link to="/mortgage" style={{ textDecoration: 'none' }} />}
       </Menu.Item>
-      <Menu.Item key="3" icon={<FileTextOutlined />} title={"Wind Mitigation"}>
+      <Menu.Item key="3" icon={<FileTextOutlined />} title={"Wind Mitigation"} disabled style={{ cursor: 'not-allowed' }}>
         {!collapsed ? <Link to="/windmit" style={{ textDecoration: 'none' }}>IDP-Wind Mitigation</Link> : <Link to="/windmit" style={{ textDecoration: 'none' }} />}
       </Menu.Item>
 {/*      
