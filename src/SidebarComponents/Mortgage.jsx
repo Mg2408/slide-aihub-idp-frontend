@@ -47,6 +47,7 @@ const TOP_LEVEL_MERGE_HEADERS = new Set([
   "Document Name",
   "Effective Date",
   "Current Mortgagee Company",
+  "Mortgage Clause",
   "Mortgagee PO Box",   // ← was "Mortgagee Street"; JSON uses PO_Box
   "Mortgagee City",
   "Mortgagee State",
@@ -55,18 +56,19 @@ const TOP_LEVEL_MERGE_HEADERS = new Set([
 
 // Policy sub-fields in display order — keys match JSON response
 const POLICY_FIELDS = [
-  { label: "Policy Number",     key: "Policy_Number"     },
-  { label: "Loan Number",       key: "Loan_Number"       },
-  { label: "Borrower Name",     key: "Borrower_Name"     }, // ← was key:"Borrowers"
-  { label: "Borrowers Address", key: "Borrowers_Address" },
+  { label: "Policy Number", key: "Policy_Number" },
+  { label: "Loan Number", key: "Loan_Number" },
+  { label: "Borrower Name", key: "Borrower_Name" }, // ← was key:"Borrowers"
+  { label: "Payee Position / Rank", key: "Payee_Position_or_Rank" },
 ];
 
 // Address object sub-fields — keys match Address_of_Mortgagee_Company.valueObject
 const ADDRESS_SUB_FIELDS = [
+  { label: "Mortgage Clause", key: "Mortgage_Clause" },
   { label: "PO Box", key: "PO_Box" }, // ← was { label:"Street", key:"Street" }
-  { label: "City",   key: "City"   },
-  { label: "State",  key: "State"  },
-  { label: "ZIP",    key: "ZIP"    },
+  { label: "City", key: "City" },
+  { label: "State", key: "State" },
+  { label: "ZIP", key: "ZIP" },
 ];
 
 /* ─────────────────────────────────────────
@@ -118,57 +120,59 @@ const buildExpandedExcelData = (json, documentName) => {
   if (!json) return { headers: [], rows: [], rowCount: 0 };
 
   const policies = json?.Policies?.valueArray || [];
-  const addrObj  = json?.Address_of_Mortgagee_Company?.valueObject || {};
+  const addrObj = json?.Address_of_Mortgagee_Company?.valueObject || {};
 
   const headers = [
     "Document Name",
     "Effective Date",
     "Current Mortgagee Company",
-    "Mortgagee PO Box",   // ← updated from "Mortgagee Street"
+    "Mortgage Clause",
+    "Mortgagee PO Box",
     "Mortgagee City",
     "Mortgagee State",
     "Mortgagee ZIP",
     "Policy Number",
     "Loan Number",
-    "Borrower Name",       // ← updated from "Borrowers"
-    "Borrowers Address",
+    "Borrower Name",
+    "Payee Position / Rank",
     "Reference",
   ];
 
   const baseRow = {
-    "Document Name":             documentName,
-    "Effective Date":            getFieldValue(json?.Effective_Date),
+    "Document Name": documentName,
+    "Effective Date": getFieldValue(json?.Effective_Date),
     "Current Mortgagee Company": getFieldValue(json?.Current_Mortgagee_Company),
-    "Mortgagee PO Box":          getFieldValue(addrObj.PO_Box),  // ← was addrObj.Street
-    "Mortgagee City":            getFieldValue(addrObj.City),
-    "Mortgagee State":           getFieldValue(addrObj.State),
-    "Mortgagee ZIP":             getFieldValue(addrObj.ZIP),
+    "Mortgage Clause": getFieldValue(addrObj.Mortgage_Clause),
+    "Mortgagee PO Box": getFieldValue(addrObj.PO_Box),  // ← was addrObj.Street
+    "Mortgagee City": getFieldValue(addrObj.City),
+    "Mortgagee State": getFieldValue(addrObj.State),
+    "Mortgagee ZIP": getFieldValue(addrObj.ZIP),
   };
 
   const rows =
     policies.length > 0
       ? policies.map((p) => {
-          const obj  = p.valueObject || {};
-          const page = getPageFromSource(obj.Policy_Number?.source ?? "");
-          return {
-            ...baseRow,
-            "Policy Number":    getFieldValue(obj.Policy_Number),
-            "Loan Number":      getFieldValue(obj.Loan_Number),
-            "Borrower Name":    getFieldValue(obj.Borrower_Name),   // ← was obj.Borrowers
-            "Borrowers Address": getFieldValue(obj.Borrowers_Address),
-            "Reference":        page ? `Page: ${page}` : "",
-          };
-        })
+        const obj = p.valueObject || {};
+        const page = getPageFromSource(obj.Policy_Number?.source ?? "");
+        return {
+          ...baseRow,
+          "Policy Number": getFieldValue(obj.Policy_Number),
+          "Loan Number": getFieldValue(obj.Loan_Number),
+          "Borrower Name": getFieldValue(obj.Borrower_Name),
+          "Payee Position / Rank": getFieldValue(obj.Payee_Position_or_Rank),
+          "Reference": page ? `Page: ${page}` : "",
+        };
+      })
       : [
-          {
-            ...baseRow,
-            "Policy Number":    "",
-            "Loan Number":      "",
-            "Borrower Name":    "",
-            "Borrowers Address": "",
-            "Reference":        "",
-          },
-        ];
+        {
+          ...baseRow,
+          "Policy Number": "",
+          "Loan Number": "",
+          "Borrower Name": "",
+          "Payee Position / Rank": "",
+          "Reference": "",
+        },
+      ];
 
   return { headers, rows, rowCount: rows.length };
 };
@@ -181,20 +185,20 @@ const headerStyle = () => ({
   fill: { fgColor: { rgb: "217346" } },
   alignment: { horizontal: "center", vertical: "center", wrapText: true },
   border: {
-    top:    { style: "thin" },
+    top: { style: "thin" },
     bottom: { style: "thin" },
-    left:   { style: "thin" },
-    right:  { style: "thin" },
+    left: { style: "thin" },
+    right: { style: "thin" },
   },
 });
 
 const cellStyle = () => ({
   alignment: { vertical: "top", wrapText: true },
   border: {
-    top:    { style: "thin" },
+    top: { style: "thin" },
     bottom: { style: "thin" },
-    left:   { style: "thin" },
-    right:  { style: "thin" },
+    left: { style: "thin" },
+    right: { style: "thin" },
   },
 });
 
@@ -205,7 +209,7 @@ const downloadMatrixExcel = (json, documentName) => {
   if (!json) return;
 
   const { headers, rows, rowCount } = buildExpandedExcelData(json, documentName);
-  const workbook  = XLSX.utils.book_new();
+  const workbook = XLSX.utils.book_new();
   const worksheet = {};
 
   // Header row (row 0)
@@ -240,7 +244,7 @@ const downloadMatrixExcel = (json, documentName) => {
     e: { r: Math.max(rowCount, 1), c: headers.length - 1 },
   });
   worksheet["!merges"] = merges;
-  worksheet["!cols"]   = headers.map(() => ({ wch: 28 }));
+  worksheet["!cols"] = headers.map(() => ({ wch: 28 }));
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Mortgage Extracted Data");
   XLSX.writeFile(workbook, `${documentName}_extracted.xlsx`);
@@ -252,10 +256,10 @@ const downloadMatrixExcel = (json, documentName) => {
 ───────────────────────────────────────── */
 const FieldRow = ({ label, field, style = {} }) => {
   if (!field) return null;
-  const value     = String(getFieldValue(field));
-  const conf      = getConfValue(field);
+  const value = getFieldValue(field) || "-";
+  const conf = getConfValue(field);
   const confColor = getConfColor(conf);
-  const page      = getPageFromSource(field.source);
+  const page = getPageFromSource(field.source);
 
   return (
     <Row gutter={[16, 8]} style={{ marginBottom: 8, ...style }}>
@@ -357,16 +361,16 @@ const scrollCellStyle = {
    Main Component
 ───────────────────────────────────────── */
 const Mortgage = () => {
-  const [apiData,              setApiData]              = useState([]);
-  const [loading,              setLoading]              = useState(false);
-  const [isModalOpen,          setIsModalOpen]          = useState(false);
-  const [excelModalOpen,       setExcelModalOpen]       = useState(false);
-  const [selectedExcelData,    setSelectedExcelData]    = useState(null);
+  const [apiData, setApiData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [excelModalOpen, setExcelModalOpen] = useState(false);
+  const [selectedExcelData, setSelectedExcelData] = useState(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(null);
-  const [fileList,             setFileList]             = useState([]);
-  const [preprocess,           setPreprocess]           = useState(false);
+  const [fileList, setFileList] = useState([]);
+  const [preprocess, setPreprocess] = useState(false);
   const hasFetchedRef = useRef(false);
-  const detailsRef    = useRef(null);
+  const detailsRef = useRef(null);
 
   useEffect(() => {
     if (hasFetchedRef.current) return;
@@ -418,16 +422,16 @@ const Mortgage = () => {
         item.submission_id,
       ]);
     return {
-      key:          item.submission_id,
-      submission:   item.submission_id?.slice(0, 8),
-      submittedBy:  getOwnerName(extractionResponse, ["-"]),
-      document:     documentName,
+      key: item.submission_id,
+      submission: item.submission_id?.slice(0, 8),
+      submittedBy: getOwnerName(extractionResponse, ["-"]),
+      document: documentName,
       documentName,
-      date:         item.last_modified
+      date: item.last_modified
         ? new Date(item.last_modified).toLocaleDateString()
         : "-",
       source: item.document_uri,
-      json:   extractionResponse,
+      json: extractionResponse,
       output: item.submission_id,
     };
   });
@@ -437,7 +441,7 @@ const Mortgage = () => {
       new Set(tableData.map((row) => row[dataIndex]).filter(Boolean))
     );
     return uniqueValues.map((value) => ({
-      text:  String(value).length > 40 ? `${String(value).slice(0, 40)}...` : value,
+      text: String(value).length > 40 ? `${String(value).slice(0, 40)}...` : value,
       value,
     }));
   };
@@ -493,21 +497,21 @@ const Mortgage = () => {
   ];
 
   const submission = apiData.find((item) => item.submission_id === selectedSubmissionId);
-  const llm        = submission?.llm_response ?? {};
+  const llm = submission?.llm_response ?? {};
   const { metadataRows, fieldGroups } = getExtractionViewModel(llm);
 
   /* ── Excel preview ── */
   const { headers: previewHeaders, rows: previewRows, rowCount: previewRowCount } =
     selectedExcelData
       ? buildExpandedExcelData(
-          selectedExcelData.json,
-          selectedExcelData.documentName || "extracted"
-        )
+        selectedExcelData.json,
+        selectedExcelData.documentName || "extracted"
+      )
       : { headers: [], rows: [], rowCount: 0 };
 
   /* ── Preview table columns with merge logic ── */
   const previewTableColumns = previewHeaders.map((header) => ({
-    title:     header,
+    title: header,
     dataIndex: header,
     onHeaderCell: () => ({ style: { backgroundColor: "#217346", color: "#fff" } }),
     render: (value, _row, index) => {
@@ -548,9 +552,9 @@ const Mortgage = () => {
                   <div
                     key={pIdx}
                     style={{
-                      marginBottom:  pIdx < valueArray.length - 1 ? 20 : 0,
+                      marginBottom: pIdx < valueArray.length - 1 ? 20 : 0,
                       paddingBottom: pIdx < valueArray.length - 1 ? 20 : 0,
-                      borderBottom:  pIdx < valueArray.length - 1
+                      borderBottom: pIdx < valueArray.length - 1
                         ? "1px solid #f0f0f0"
                         : "none",
                     }}
@@ -632,9 +636,9 @@ const Mortgage = () => {
           <Col span={24}><strong>{group.fieldName}</strong></Col>
           <Col span={24}>
             {group.entries.map((entry, index) => {
-              const conf      = getConfValue(entry);
+              const conf = getConfValue(entry);
               const confColor = getConfColor(conf);
-              const page      = getPageFromSource(entry.source);
+              const page = getPageFromSource(entry.source);
               return (
                 <Row
                   key={`${group.id}-${index}`}
