@@ -11,7 +11,6 @@ import {
   List,
   Tag,
   Input,
-  Switch,
 } from "antd";
 import {
   UploadOutlined,
@@ -37,72 +36,65 @@ import {
 
 /* ─────────────────────────────────────────
    Constants
-   ─── Aligned with backend JSON response ───
-   Address_of_Mortgagee_Company.valueObject keys: PO_Box, City, State, ZIP
-   Policies[].valueObject keys: Policy_Number, Loan_Number, Borrower_Name, Borrowers_Address
+   New JSON structure: ALL fields are FLAT inside each Policies[].valueObject
+   There is NO top-level Effective_Date / Current_Mortgagee_Company /
+   Address_of_Mortgagee_Company — those fields now live per-policy.
 ───────────────────────────────────────── */
 
-// Top-level non-policy fields — merged across all policy rows in Excel preview
+/**
+ * Fields that are SHARED across all policies (same value on every row).
+ * In the Excel preview these columns are merged vertically.
+ */
 const TOP_LEVEL_MERGE_HEADERS = new Set([
   "Document Name",
-  "Effective Date",
   "Current Mortgagee Company",
   "Mortgage Clause",
-  "Mortgagee PO Box",   // ← was "Mortgagee Street"; JSON uses PO_Box
+  "Mortgagee PO Box",
   "Mortgagee City",
   "Mortgagee State",
   "Mortgagee ZIP",
 ]);
 
-// Policy sub-fields in display order — keys match JSON response
+/**
+ * Per-policy display fields — rendered once per policy block in the UI
+ * and as individual rows in Excel.
+ */
 const POLICY_FIELDS = [
-  { label: "Policy Number", key: "Policy_Number" },
-  { label: "Loan Number", key: "Loan_Number" },
-  { label: "Borrower Name", key: "Borrower_Name" }, // ← was key:"Borrowers"
-  { label: "Payee Position / Rank", key: "Payee_Position_or_Rank" },
+  { label: "Policy Number",        key: "Policy_Number" },
+  { label: "Loan Number",          key: "Loan_Number" },
+  { label: "Borrower Name",        key: "Borrower_Name" },
+  { label: "Payee Position / Rank",key: "Payee_Position_or_Rank" },
+  { label: "Effective Date",       key: "Transaction_Effective_Date" },
 ];
 
-// Address object sub-fields — keys match Address_of_Mortgagee_Company.valueObject
-const ADDRESS_SUB_FIELDS = [
-  { label: "Mortgage Clause", key: "Mortgage_Clause" },
-  { label: "PO Box", key: "PO_Box" }, // ← was { label:"Street", key:"Street" }
-  { label: "City", key: "City" },
-  { label: "State", key: "State" },
-  { label: "ZIP", key: "ZIP" },
+/**
+ * Address / shared fields that are read from the FIRST policy's valueObject
+ * (they repeat identically across all policies in the sample data).
+ */
+const SHARED_POLICY_FIELDS = [
+  { label: "Current Mortgagee Company", key: "Current_Mortgagee_Company" },
+  { label: "Mortgage Clause",           key: "Mortgage_Clause" },
+  { label: "PO Box",                    key: "PO_Box" },
+  { label: "City",                      key: "City" },
+  { label: "State",                     key: "State" },
+  { label: "ZIP",                       key: "ZIP" },
 ];
 
 /* ─────────────────────────────────────────
    Helpers
 ───────────────────────────────────────── */
 
-// Returns the display value from any field type (string, date, number)
 const getFieldValue = (field) =>
   field?.valueString ?? field?.valueDate ?? field?.valueNumber ?? "";
 
-// Normalise a field group name for matching regardless of casing/spaces/underscores
 const normKey = (name) => name?.toLowerCase().replace(/[\s_]/g, "") ?? "";
 
-// ── Shared confidence + page helpers ────────────────────────────────────────
-
-/**
- * Reads confidence directly from a field object.
- * Returns 0–100 integer, or null if not present.
- */
 const getConfValue = (field) =>
   field?.confidence != null ? Math.round(field.confidence * 100) : null;
 
-/**
- * Maps a 0–100 confidence integer to a colour.
- * ≥90 → green  |  ≥70 → orange  |  <70 → red
- */
 const getConfColor = (conf) =>
   conf == null ? null : conf >= 90 ? "#52bb2c" : conf >= 70 ? "#d37f30" : "#cf3e4a";
 
-/**
- * Parses the page number from a source string like
- * "D(1,6.04,15.28,...)"  →  "1"
- * Works for multi-source strings separated by ";"
- */
 const getPageFromSource = (source) => {
   if (!source) return null;
   const match = String(source).match(/D\((\d+)/);
@@ -110,21 +102,20 @@ const getPageFromSource = (source) => {
 };
 
 /* ─────────────────────────────────────────
-   Build expanded rows for Excel
-   Columns (aligned to JSON response):
-     Document Name | Effective Date | Current Mortgagee Company |
+   Build Excel rows
+   Columns:
+     Document Name | Current Mortgagee Company | Mortgage Clause |
      Mortgagee PO Box | Mortgagee City | Mortgagee State | Mortgagee ZIP |
-     Policy Number | Loan Number | Borrower Name | Borrowers Address | Reference
+     Policy Number | Loan Number | Borrower Name | Payee Position / Rank |
+     Effective Date | Reference
 ───────────────────────────────────────── */
 const buildExpandedExcelData = (json, documentName) => {
   if (!json) return { headers: [], rows: [], rowCount: 0 };
 
   const policies = json?.Policies?.valueArray || [];
-  const addrObj = json?.Address_of_Mortgagee_Company?.valueObject || {};
 
   const headers = [
     "Document Name",
-    "Effective Date",
     "Current Mortgagee Company",
     "Mortgage Clause",
     "Mortgagee PO Box",
@@ -135,44 +126,49 @@ const buildExpandedExcelData = (json, documentName) => {
     "Loan Number",
     "Borrower Name",
     "Payee Position / Rank",
+    "Effective Date",
     "Reference",
   ];
 
-  const baseRow = {
+  // Read shared fields from first policy (they repeat on every policy)
+  const firstObj = policies[0]?.valueObject || {};
+
+  const sharedBase = {
     "Document Name": documentName,
-    "Effective Date": getFieldValue(json?.Effective_Date),
-    "Current Mortgagee Company": getFieldValue(json?.Current_Mortgagee_Company),
-    "Mortgage Clause": getFieldValue(addrObj.Mortgage_Clause),
-    "Mortgagee PO Box": getFieldValue(addrObj.PO_Box),  // ← was addrObj.Street
-    "Mortgagee City": getFieldValue(addrObj.City),
-    "Mortgagee State": getFieldValue(addrObj.State),
-    "Mortgagee ZIP": getFieldValue(addrObj.ZIP),
+    "Current Mortgagee Company": getFieldValue(firstObj.Current_Mortgagee_Company),
+    "Mortgage Clause":           getFieldValue(firstObj.Mortgage_Clause),
+    "Mortgagee PO Box":          getFieldValue(firstObj.PO_Box),
+    "Mortgagee City":            getFieldValue(firstObj.City),
+    "Mortgagee State":           getFieldValue(firstObj.State),
+    "Mortgagee ZIP":             getFieldValue(firstObj.ZIP),
   };
 
   const rows =
     policies.length > 0
       ? policies.map((p) => {
-        const obj = p.valueObject || {};
-        const page = getPageFromSource(obj.Policy_Number?.source ?? "");
-        return {
-          ...baseRow,
-          "Policy Number": getFieldValue(obj.Policy_Number),
-          "Loan Number": getFieldValue(obj.Loan_Number),
-          "Borrower Name": getFieldValue(obj.Borrower_Name),
-          "Payee Position / Rank": getFieldValue(obj.Payee_Position_or_Rank),
-          "Reference": page ? `Page: ${page}` : "",
-        };
-      })
+          const obj = p.valueObject || {};
+          const page = getPageFromSource(obj.Policy_Number?.source ?? "");
+          return {
+            ...sharedBase,
+            "Policy Number":         getFieldValue(obj.Policy_Number),
+            "Loan Number":           getFieldValue(obj.Loan_Number),
+            "Borrower Name":         getFieldValue(obj.Borrower_Name),
+            "Payee Position / Rank": getFieldValue(obj.Payee_Position_or_Rank),
+            "Effective Date":        getFieldValue(obj.Transaction_Effective_Date),
+            "Reference":             page ? `Page: ${page}` : "",
+          };
+        })
       : [
-        {
-          ...baseRow,
-          "Policy Number": "",
-          "Loan Number": "",
-          "Borrower Name": "",
-          "Payee Position / Rank": "",
-          "Reference": "",
-        },
-      ];
+          {
+            ...sharedBase,
+            "Policy Number": "",
+            "Loan Number": "",
+            "Borrower Name": "",
+            "Payee Position / Rank": "",
+            "Effective Date": "",
+            "Reference": "",
+          },
+        ];
 
   return { headers, rows, rowCount: rows.length };
 };
@@ -185,20 +181,16 @@ const headerStyle = () => ({
   fill: { fgColor: { rgb: "217346" } },
   alignment: { horizontal: "center", vertical: "center", wrapText: true },
   border: {
-    top: { style: "thin" },
-    bottom: { style: "thin" },
-    left: { style: "thin" },
-    right: { style: "thin" },
+    top: { style: "thin" }, bottom: { style: "thin" },
+    left: { style: "thin" }, right: { style: "thin" },
   },
 });
 
 const cellStyle = () => ({
   alignment: { vertical: "top", wrapText: true },
   border: {
-    top: { style: "thin" },
-    bottom: { style: "thin" },
-    left: { style: "thin" },
-    right: { style: "thin" },
+    top: { style: "thin" }, bottom: { style: "thin" },
+    left: { style: "thin" }, right: { style: "thin" },
   },
 });
 
@@ -212,14 +204,12 @@ const downloadMatrixExcel = (json, documentName) => {
   const workbook = XLSX.utils.book_new();
   const worksheet = {};
 
-  // Header row (row 0)
   headers.forEach((header, colIndex) => {
     worksheet[XLSX.utils.encode_cell({ r: 0, c: colIndex })] = {
       v: header, s: headerStyle(),
     };
   });
 
-  // Data rows (rows 1…rowCount)
   rows.forEach((row, rowIndex) => {
     const sheetRow = rowIndex + 1;
     headers.forEach((header, colIndex) => {
@@ -229,7 +219,7 @@ const downloadMatrixExcel = (json, documentName) => {
     });
   });
 
-  // Merge top-level fields across all policy rows
+  // Merge shared/top-level columns vertically across all policy rows
   const merges = [];
   if (rowCount > 1) {
     headers.forEach((header, colIndex) => {
@@ -251,31 +241,26 @@ const downloadMatrixExcel = (json, documentName) => {
 };
 
 /* ─────────────────────────────────────────
-   FieldRow — reusable field renderer
-   Works for valueString, valueDate, valueNumber
+   FieldRow — single field with conf + page
 ───────────────────────────────────────── */
 const FieldRow = ({ label, field, style = {} }) => {
   if (!field) return null;
   const value = getFieldValue(field) || "-";
-  const conf = getConfValue(field);
+  const conf  = getConfValue(field);
   const confColor = getConfColor(conf);
-  const page = getPageFromSource(field.source);
+  const page  = getPageFromSource(field.source);
 
   return (
     <Row gutter={[16, 8]} style={{ marginBottom: 8, ...style }}>
       <Col span={14}>
         {value.length > 120 ? (
-          <Input.TextArea
-            value={value}
-            readOnly
-            autoSize={{ minRows: 2, maxRows: 6 }}
-          />
+          <Input.TextArea value={value} readOnly autoSize={{ minRows: 2, maxRows: 6 }} />
         ) : (
           <Input
             value={value}
             readOnly
             addonBefore={
-              <span style={{ fontWeight: 600, width: 145, display: "inline-block" }}>
+              <span style={{ fontWeight: 600, width: 200, display: "inline-block" }}>
                 {label}
               </span>
             }
@@ -287,32 +272,6 @@ const FieldRow = ({ label, field, style = {} }) => {
         {page && <Tag>Page: {page}</Tag>}
       </Col>
     </Row>
-  );
-};
-
-/* ─────────────────────────────────────────
-   AddressObjectRenderer
-   Renders PO Box / City / State / ZIP
-   each with its own confidence + page tag
-   Keys match Address_of_Mortgagee_Company.valueObject
-───────────────────────────────────────── */
-const AddressObjectRenderer = ({ valueObject }) => {
-  if (!valueObject) return null;
-  return (
-    <div
-      style={{
-        marginLeft: 16,
-        paddingLeft: 12,
-        borderLeft: "3px solid #e6f4ff",
-        marginTop: 4,
-      }}
-    >
-      {ADDRESS_SUB_FIELDS.map(({ label, key }) => {
-        const field = valueObject[key];
-        if (!field) return null;
-        return <FieldRow key={key} label={label} field={field} style={{ marginBottom: 6 }} />;
-      })}
-    </div>
   );
 };
 
@@ -361,32 +320,28 @@ const scrollCellStyle = {
    Main Component
 ───────────────────────────────────────── */
 const Mortgage = () => {
-  const [apiData, setApiData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [excelModalOpen, setExcelModalOpen] = useState(false);
+  const [apiData, setApiData]                     = useState([]);
+  const [loading, setLoading]                     = useState(false);
+  const [isModalOpen, setIsModalOpen]             = useState(false);
+  const [excelModalOpen, setExcelModalOpen]       = useState(false);
   const [selectedExcelData, setSelectedExcelData] = useState(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(null);
-  const [fileList, setFileList] = useState([]);
-  const [preprocess, setPreprocess] = useState(false);
+  const [fileList, setFileList]                   = useState([]);
   const hasFetchedRef = useRef(false);
-  const detailsRef = useRef(null);
+  const detailsRef    = useRef(null);
 
   useEffect(() => {
     if (hasFetchedRef.current) return;
     const fetchDocuments = async () => {
       try {
         setLoading(true);
-        const response = await fetch(
-          buildAiExtractUrl("/api/get_extracted_documents")
-        );
+        const response = await fetch(buildAiExtractUrl("/api/get_extracted_documents"));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const result = await response.json();
         setApiData(result.submission_list || []);
         hasFetchedRef.current = true;
       } catch (error) {
         console.error(error);
-        // message.error("Failed to fetch data");
       } finally {
         setLoading(false);
       }
@@ -496,20 +451,23 @@ const Mortgage = () => {
     },
   ];
 
+  /* ── Selected submission data ── */
   const submission = apiData.find((item) => item.submission_id === selectedSubmissionId);
-  const llm = submission?.llm_response ?? {};
-  const { metadataRows, fieldGroups } = getExtractionViewModel(llm);
+  const llm        = submission?.llm_response ?? {};
+  const policies   = llm?.Policies?.valueArray || [];
+
+  // Shared fields sourced from first policy's valueObject
+  const firstPolicyObj = policies[0]?.valueObject || {};
 
   /* ── Excel preview ── */
   const { headers: previewHeaders, rows: previewRows, rowCount: previewRowCount } =
     selectedExcelData
       ? buildExpandedExcelData(
-        selectedExcelData.json,
-        selectedExcelData.documentName || "extracted"
-      )
+          selectedExcelData.json,
+          selectedExcelData.documentName || "extracted"
+        )
       : { headers: [], rows: [], rowCount: 0 };
 
-  /* ── Preview table columns with merge logic ── */
   const previewTableColumns = previewHeaders.map((header) => ({
     title: header,
     dataIndex: header,
@@ -533,144 +491,8 @@ const Mortgage = () => {
   }));
 
   /* ─────────────────────────────────────────
-     Extracted Fields — per-group renderer
+     UI Renderer
   ───────────────────────────────────────── */
-  const renderFieldGroup = (group) => {
-    const nk = normKey(group.fieldName);
-
-    /* ── Policies ── */
-    if (nk === "policies") {
-      const valueArray = llm?.Policies?.valueArray || [];
-      return (
-        <List.Item key={group.id}>
-          <Row gutter={[16, 8]}>
-            <Col span={24}><strong>Policies</strong></Col>
-            <Col span={24}>
-              {valueArray.map((policy, pIdx) => {
-                const obj = policy.valueObject || {};
-                return (
-                  <div
-                    key={pIdx}
-                    style={{
-                      marginBottom: pIdx < valueArray.length - 1 ? 20 : 0,
-                      paddingBottom: pIdx < valueArray.length - 1 ? 20 : 0,
-                      borderBottom: pIdx < valueArray.length - 1
-                        ? "1px solid #f0f0f0"
-                        : "none",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 12, fontWeight: 600, color: "#5d9de2",
-                        marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px",
-                      }}
-                    >
-                      Policy {pIdx + 1}
-                    </div>
-                    {POLICY_FIELDS.map(({ label, key }) => (
-                      <FieldRow
-                        key={key}
-                        label={label}
-                        field={obj[key]}   /* obj.Borrower_Name now correctly maps */
-                        style={{ marginBottom: 6 }}
-                      />
-                    ))}
-                  </div>
-                );
-              })}
-            </Col>
-          </Row>
-        </List.Item>
-      );
-    }
-
-    /* ── Address of Mortgagee Company (PO Box / City / State / ZIP) ── */
-    if (nk === "addressofmortgageecompany") {
-      const valueObject = llm?.Address_of_Mortgagee_Company?.valueObject ?? null;
-      return (
-        <List.Item key={group.id}>
-          <Row gutter={[16, 8]}>
-            <Col span={24}><strong>Address of Mortgagee Company</strong></Col>
-            <Col span={24}>
-              <AddressObjectRenderer valueObject={valueObject} />
-            </Col>
-          </Row>
-        </List.Item>
-      );
-    }
-
-    /* ── Effective Date (valueDate) ── */
-    if (nk === "effectivedate") {
-      const field = llm?.Effective_Date ?? null;
-      return (
-        <List.Item key={group.id}>
-          <Row gutter={[16, 8]}>
-            <Col span={24}><strong>Effective Date</strong></Col>
-            <Col span={24}>
-              <FieldRow label="Effective Date" field={field} />
-            </Col>
-          </Row>
-        </List.Item>
-      );
-    }
-
-    /* ── Current Mortgagee Company ── */
-    if (nk === "currentmortgageecompany") {
-      const field = llm?.Current_Mortgagee_Company ?? null;
-      return (
-        <List.Item key={group.id}>
-          <Row gutter={[16, 8]}>
-            <Col span={24}><strong>Current Mortgagee Company</strong></Col>
-            <Col span={24}>
-              <FieldRow label="Company" field={field} />
-            </Col>
-          </Row>
-        </List.Item>
-      );
-    }
-
-    /* ── Default: all other flat fields ── */
-    return (
-      <List.Item key={group.id}>
-        <Row gutter={[16, 8]}>
-          <Col span={24}><strong>{group.fieldName}</strong></Col>
-          <Col span={24}>
-            {group.entries.map((entry, index) => {
-              const conf = getConfValue(entry);
-              const confColor = getConfColor(conf);
-              const page = getPageFromSource(entry.source);
-              return (
-                <Row
-                  key={`${group.id}-${index}`}
-                  gutter={[16, 8]}
-                  style={{ marginBottom: index === group.entries.length - 1 ? 0 : 12 }}
-                >
-                  <Col span={14}>
-                    {String(entry.value || "").length > 120 ? (
-                      <Input.TextArea
-                        value={entry.value}
-                        readOnly
-                        autoSize={{ minRows: 2, maxRows: 6 }}
-                      />
-                    ) : (
-                      <Input value={entry.value} readOnly />
-                    )}
-                  </Col>
-                  <Col span={10} style={{ textAlign: "right" }}>
-                    {conf != null && (
-                      <Tag color={confColor}>Confidence: {conf}%</Tag>
-                    )}
-                    {page && <Tag color="#1d3461">Page: {page}</Tag>}
-                  </Col>
-                </Row>
-              );
-            })}
-          </Col>
-        </Row>
-      </List.Item>
-    );
-  };
-
   return (
     <Container>
       <MyTableComponent
@@ -682,7 +504,11 @@ const Mortgage = () => {
 
       <Row>
         <Col span={24} style={{ textAlign: "right", marginTop: 16 }}>
-          <Button type="primary" icon={<UploadOutlined />} onClick={() => setIsModalOpen(true)}>
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            onClick={() => setIsModalOpen(true)}
+          >
             Upload
           </Button>
         </Col>
@@ -690,36 +516,114 @@ const Mortgage = () => {
 
       {submission && (
         <div ref={detailsRef} style={{ marginTop: 24 }}>
-          {/* ── Document Metadata ── */}
-          {metadataRows.length > 0 && (
+
+          {/* ── Shared / Document-level Fields (from first policy) ── */}
+          {policies.length > 0 && (
             <Card
-              title="Document Metadata"
+              title="Document Level Fields"
               headStyle={{ backgroundColor: "#5d9de2", color: "#fff" }}
+              style={{ marginBottom: 16 }}
             >
-              <Table
-                columns={[
-                  { title: "", dataIndex: "keyName", width: "30%" },
-                  { title: "", dataIndex: "value" },
-                ]}
-                dataSource={metadataRows}
-                pagination={false}
-                bordered
-                size="small"
-              />
+              {SHARED_POLICY_FIELDS.map(({ label, key }) => (
+                <FieldRow
+                  key={key}
+                  label={label}
+                  field={firstPolicyObj[key]}
+                  style={{ marginBottom: 6 }}
+                />
+              ))}
             </Card>
           )}
 
-          {/* ── Extracted Fields ── */}
+          {/* ── Per-Policy Extracted Fields ── */}
           <Card
-            style={{ marginTop: metadataRows.length > 0 ? 16 : 0 }}
-            title={`Extracted Fields (${fieldGroups.length})`}
+            title={`Policies (${policies.length})`}
             headStyle={{ backgroundColor: "#5d9de2", color: "#fff" }}
           >
-            <List
-              itemLayout="vertical"
-              dataSource={fieldGroups}
-              renderItem={renderFieldGroup}
-            />
+            {policies.length === 0 ? (
+              <p style={{ color: "#999" }}>No policies found.</p>
+            ) : (
+              <List
+                itemLayout="vertical"
+                dataSource={policies}
+                renderItem={(policy, pIdx) => {
+                  const obj = policy.valueObject || {};
+                  return (
+                    <List.Item key={pIdx}>
+                      {/* Policy header badge */}
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "#5d9de2",
+                          marginBottom: 12,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          borderBottom: "1px solid #e6f0ff",
+                          paddingBottom: 6,
+                        }}
+                      >
+                        Policy {pIdx + 1}
+                      </div>
+
+                      {/* Per-policy unique fields */}
+                      <div style={{ marginBottom: 12 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#888",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.4px",
+                            marginBottom: 8,
+                          }}
+                        >
+                          Policy Details
+                        </div>
+                        {POLICY_FIELDS.map(({ label, key }) => (
+                          <FieldRow
+                            key={key}
+                            label={label}
+                            field={obj[key]}
+                            style={{ marginBottom: 6 }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Shared fields repeated per policy (shown for transparency / per-policy confidence) */}
+                      <div
+                        style={{
+                          marginLeft: 16,
+                          paddingLeft: 12,
+                          borderLeft: "3px solid #e6f4ff",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#888",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.4px",
+                            marginBottom: 8,
+                          }}
+                        >
+                          Mortgagee / Address Fields (as extracted for this policy)
+                        </div>
+                        {SHARED_POLICY_FIELDS.map(({ label, key }) => (
+                          <FieldRow
+                            key={key}
+                            label={label}
+                            field={obj[key]}
+                            style={{ marginBottom: 6 }}
+                          />
+                        ))}
+                      </div>
+                    </List.Item>
+                  );
+                }}
+              />
+            )}
           </Card>
         </div>
       )}
@@ -733,10 +637,6 @@ const Mortgage = () => {
         afterClose={() => setFileList([])}
         footer={null}
       >
-        {/* <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
-          <span>Enable Preprocessing</span>
-          <Switch checked={preprocess} onChange={(checked) => setPreprocess(checked)} />
-        </div> */}
         <Upload.Dragger
           accept=".pdf,.tif,.tiff"
           multiple={false}
