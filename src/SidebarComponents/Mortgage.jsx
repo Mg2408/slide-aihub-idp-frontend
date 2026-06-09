@@ -42,18 +42,10 @@ import {
 ───────────────────────────────────────── */
 
 /**
- * Fields that are SHARED across all policies (same value on every row).
- * In the Excel preview these columns are merged vertically.
+ * No vertical merging — every policy is a fully independent flat row.
+ * Kept as an empty set so no merge logic fires in Excel or preview table.
  */
-const TOP_LEVEL_MERGE_HEADERS = new Set([
-  "Document Name",
-  "Current Mortgagee Company",
-  "Mortgage Clause",
-  "Mortgagee PO Box",
-  "Mortgagee City",
-  "Mortgagee State",
-  "Mortgagee ZIP",
-]);
+const TOP_LEVEL_MERGE_HEADERS = new Set([]);
 
 /**
  * Per-policy display fields — rendered once per policy block in the UI
@@ -102,12 +94,14 @@ const getPageFromSource = (source) => {
 };
 
 /* ─────────────────────────────────────────
-   Build Excel rows
-   Columns:
-     Document Name | Current Mortgagee Company | Mortgage Clause |
-     Mortgagee PO Box | Mortgagee City | Mortgagee State | Mortgagee ZIP |
-     Policy Number | Loan Number | Borrower Name | Payee Position / Rank |
-     Effective Date | Reference
+   Build Excel rows — ONE flat row per policy.
+   Column order matches requested spec:
+     Document Name |
+     Policy Number | Borrower Name |
+     Current Mortgagee Company | Mortgage Clause |
+     PO Box | City | State | ZIP |
+     Loan Number | Payee Position / Rank | Effective Date
+   All fields are read from each policy's own valueObject — no merging.
 ───────────────────────────────────────── */
 const buildExpandedExcelData = (json, documentName) => {
   if (!json) return { headers: [], rows: [], rowCount: 0 };
@@ -116,57 +110,52 @@ const buildExpandedExcelData = (json, documentName) => {
 
   const headers = [
     "Document Name",
+    "Policy Number",
+    "Borrower Name",
     "Current Mortgagee Company",
     "Mortgage Clause",
-    "Mortgagee PO Box",
-    "Mortgagee City",
-    "Mortgagee State",
-    "Mortgagee ZIP",
-    "Policy Number",
+    "PO Box",
+    "City",
+    "State",
+    "ZIP",
     "Loan Number",
-    "Borrower Name",
     "Payee Position / Rank",
     "Effective Date",
-    "Reference",
   ];
-
-  // Read shared fields from first policy (they repeat on every policy)
-  const firstObj = policies[0]?.valueObject || {};
-
-  const sharedBase = {
-    "Document Name": documentName,
-    "Current Mortgagee Company": getFieldValue(firstObj.Current_Mortgagee_Company),
-    "Mortgage Clause":           getFieldValue(firstObj.Mortgage_Clause),
-    "Mortgagee PO Box":          getFieldValue(firstObj.PO_Box),
-    "Mortgagee City":            getFieldValue(firstObj.City),
-    "Mortgagee State":           getFieldValue(firstObj.State),
-    "Mortgagee ZIP":             getFieldValue(firstObj.ZIP),
-  };
 
   const rows =
     policies.length > 0
       ? policies.map((p) => {
           const obj = p.valueObject || {};
-          const page = getPageFromSource(obj.Policy_Number?.source ?? "");
           return {
-            ...sharedBase,
-            "Policy Number":         getFieldValue(obj.Policy_Number),
-            "Loan Number":           getFieldValue(obj.Loan_Number),
-            "Borrower Name":         getFieldValue(obj.Borrower_Name),
-            "Payee Position / Rank": getFieldValue(obj.Payee_Position_or_Rank),
-            "Effective Date":        getFieldValue(obj.Transaction_Effective_Date),
-            "Reference":             page ? `Page: ${page}` : "",
+            "Document Name":             documentName,
+            "Policy Number":             getFieldValue(obj.Policy_Number),
+            "Borrower Name":             getFieldValue(obj.Borrower_Name),
+            "Current Mortgagee Company": getFieldValue(obj.Current_Mortgagee_Company),
+            "Mortgage Clause":           getFieldValue(obj.Mortgage_Clause),
+            "PO Box":                    getFieldValue(obj.PO_Box),
+            "City":                      getFieldValue(obj.City),
+            "State":                     getFieldValue(obj.State),
+            "ZIP":                       getFieldValue(obj.ZIP),
+            "Loan Number":               getFieldValue(obj.Loan_Number),
+            "Payee Position / Rank":     getFieldValue(obj.Payee_Position_or_Rank),
+            "Effective Date":            getFieldValue(obj.Transaction_Effective_Date),
           };
         })
       : [
           {
-            ...sharedBase,
+            "Document Name": documentName,
             "Policy Number": "",
-            "Loan Number": "",
             "Borrower Name": "",
+            "Current Mortgagee Company": "",
+            "Mortgage Clause": "",
+            "PO Box": "",
+            "City": "",
+            "State": "",
+            "ZIP": "",
+            "Loan Number": "",
             "Payee Position / Rank": "",
             "Effective Date": "",
-            "Reference": "",
           },
         ];
 
@@ -219,21 +208,11 @@ const downloadMatrixExcel = (json, documentName) => {
     });
   });
 
-  // Merge shared/top-level columns vertically across all policy rows
-  const merges = [];
-  if (rowCount > 1) {
-    headers.forEach((header, colIndex) => {
-      if (TOP_LEVEL_MERGE_HEADERS.has(header)) {
-        merges.push({ s: { r: 1, c: colIndex }, e: { r: rowCount, c: colIndex } });
-      }
-    });
-  }
-
   worksheet["!ref"] = XLSX.utils.encode_range({
     s: { r: 0, c: 0 },
     e: { r: Math.max(rowCount, 1), c: headers.length - 1 },
   });
-  worksheet["!merges"] = merges;
+  // No merges — every policy is a fully independent flat row
   worksheet["!cols"] = headers.map(() => ({ wch: 28 }));
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Mortgage Extracted Data");
@@ -468,26 +447,16 @@ const Mortgage = () => {
         )
       : { headers: [], rows: [], rowCount: 0 };
 
+  // Flat columns — one independent row per policy, no merging
   const previewTableColumns = previewHeaders.map((header) => ({
     title: header,
     dataIndex: header,
     onHeaderCell: () => ({ style: { backgroundColor: "#217346", color: "#fff" } }),
-    render: (value, _row, index) => {
-      if (TOP_LEVEL_MERGE_HEADERS.has(header)) {
-        return {
-          children: value ?? "-",
-          props: { rowSpan: index === 0 ? previewRowCount : 0 },
-        };
-      }
-      return {
-        children: (
-          <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {value || "-"}
-          </span>
-        ),
-        props: { rowSpan: 1 },
-      };
-    },
+    render: (value) => (
+      <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {value || "-"}
+      </span>
+    ),
   }));
 
   /* ─────────────────────────────────────────
